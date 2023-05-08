@@ -63,11 +63,11 @@ func _init(key_id: String, key_secret: String) -> void:
 
 
 func _generate_signature(chunk: String) -> String:
-	var err := _hmac.start(HashingContext.HASH_SHA256, _access_key_secret.to_utf8())
+	var err := _hmac.start(HashingContext.HASH_SHA256, _access_key_secret.to_utf8_buffer())
 	if err:
 		printerr("OpenBlive: failed to start HMAC context.")
 		return String()
-	err = _hmac.update(chunk.to_utf8())
+	err = _hmac.update(chunk.to_utf8_buffer())
 	if err:
 		printerr("OpenBlive: failed to update HMAC context.")
 		_hmac.finish()
@@ -76,16 +76,16 @@ func _generate_signature(chunk: String) -> String:
 
 
 func _generate_nonce(length := 8) -> String:
-	var chars := PoolStringArray()
+	var chars := PackedStringArray()
 	chars.resize(length)
 	for i in length:
 		chars[i] = str(_rng.randi_range(0, 9))
-	return chars.join("")
+	return "".join(chars)
 
 
 func request(api: String, params: Dictionary) -> ApiCallResult:
-	var body := to_json(params)
-	var timestamp := OS.get_unix_time()
+	var body := JSON.new().stringify(params)
+	var timestamp := Time.get_unix_time_from_system()
 	var headers := [
 		"x-bili-accesskeyid:%s" % _access_key_id,
 		"x-bili-content-md5:%s" % body.md5_text(),
@@ -94,7 +94,7 @@ func request(api: String, params: Dictionary) -> ApiCallResult:
 		"x-bili-signature-version:1.0",
 		"x-bili-timestamp:%d" % timestamp,
 	]
-	var signature := _generate_signature(PoolStringArray(headers).join("\n"))
+	var signature := _generate_signature("\n".join(PackedStringArray(headers)))
 	headers.append_array([
 		"Accept: application/json",
 		"Content-Type: application/json",
@@ -102,7 +102,7 @@ func request(api: String, params: Dictionary) -> ApiCallResult:
 	])
 	
 	# So that the caller can safely yield this method.
-	yield(Engine.get_main_loop(), "idle_frame")
+	await Engine.get_main_loop().idle_frame
 	
 	var err := _http.connect_to_host(_endpoint)
 	if err:
@@ -116,7 +116,7 @@ func request(api: String, params: Dictionary) -> ApiCallResult:
 		var status := _http.get_status()
 		match status:
 			HTTPClient.STATUS_RESOLVING, HTTPClient.STATUS_CONNECTING:
-				yield(Engine.get_main_loop(), "idle_frame")
+				await Engine.get_main_loop().idle_frame
 			HTTPClient.STATUS_CONNECTED:
 				break
 			_:
@@ -134,7 +134,7 @@ func request(api: String, params: Dictionary) -> ApiCallResult:
 		var status := _http.get_status()
 		match status:
 			HTTPClient.STATUS_REQUESTING:
-				yield(Engine.get_main_loop(), "idle_frame")
+				await Engine.get_main_loop().idle_frame
 			HTTPClient.STATUS_BODY, HTTPClient.STATUS_CONNECTED:
 				break
 			_:
@@ -144,7 +144,7 @@ func request(api: String, params: Dictionary) -> ApiCallResult:
 	if http_code != HTTPClient.RESPONSE_OK:
 		return ApiCallResult.make_http_error(http_code, "unexpected HTTP status code")
 	
-	var raw_response := PoolByteArray()
+	var raw_response := PackedByteArray()
 	while true:
 		err = _http.poll()
 		if err:
@@ -160,7 +160,9 @@ func request(api: String, params: Dictionary) -> ApiCallResult:
 				return ApiCallResult.make_request_error(status, "failed when waiting for response")
 	
 	var json_text := raw_response.get_string_from_utf8()
-	var response := parse_json(json_text) as Dictionary
+	var test_json_conv = JSON.new()
+	test_json_conv.parse(json_text)
+	var response := test_json_conv.get_data()
 	
 	var api_code = response.get("code")
 	if api_code != 0:

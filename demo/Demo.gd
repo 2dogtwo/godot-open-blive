@@ -2,13 +2,13 @@ extends Control
 
 var quitting := false
 
-onready var blive = $OpenBlive
-onready var output = $Output
+@onready var blive = $OpenBlive
+@onready var output = $Output
 
-onready var game_start: Button = $Dashboard/Game/Start
-onready var game_end: Button = $Dashboard/Game/End
-onready var danmaku_connect: Button = $Dashboard/Danmaku/Connect
-onready var danmaku_disconnect: Button = $Dashboard/Danmaku/Disconnect
+@onready var game_start: Button = $Dashboard/Game/Start
+@onready var game_end: Button = $Dashboard/Game/End
+@onready var danmaku_connect: Button = $Dashboard/Danmaku/Connect
+@onready var danmaku_disconnect: Button = $Dashboard/Danmaku/Disconnect
 
 
 func _ready():
@@ -16,9 +16,9 @@ func _ready():
 
 
 func _notification(what):
-	if what == NOTIFICATION_WM_QUIT_REQUEST and not quitting:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST and not quitting:
 		quitting = true
-		yield(blive.stop_game(), "completed")
+		await blive.stop_game().completed
 		get_tree().quit()
 
 
@@ -33,7 +33,7 @@ func _set_game_started(v: bool):
 
 
 func _append_datetime():
-	var dt := OS.get_datetime()
+	var dt := Time.get_datetime_dict_from_system()
 	output.push_color(Color(1, 1, 1, 0.5))
 	output.add_text("[%02d-%02d %02d:%02d:%02d]" % [dt.month, dt.day, dt.hour, dt.minute, dt.second])
 	output.pop()

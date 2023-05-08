@@ -4,10 +4,10 @@ const AUTH_CODE_SAVE_FILE := "user://open-blive.bin"
 
 signal submitted(code)
 
-onready var dialog: PopupDialog = $Dialog
-onready var line_edit: LineEdit = $Dialog/LineEdit
-onready var submit: TextureButton = $Dialog/Submit
-onready var remember: CheckBox = $Dialog/Remember
+@onready var dialog: Popup = $Dialog
+@onready var line_edit: LineEdit = $Dialog/LineEdit
+@onready var submit: TextureButton = $Dialog/Submit
+@onready var remember: CheckBox = $Dialog/Remember
 
 
 func show_dialog():
@@ -17,39 +17,37 @@ func show_dialog():
 	_on_LineEdit_text_changed(saved)
 	
 	if saved:
-		remember.pressed = true
+		remember.button_pressed = true
 	
 	dialog.popup_centered()
 
 
 func _load_auth_code() -> String:
-	var file := File.new()
-	var err := file.open(AUTH_CODE_SAVE_FILE, File.READ)
-	if err:
+	var file := FileAccess.open(AUTH_CODE_SAVE_FILE, FileAccess.READ)
+	if not file:
 		return ""
 	var code := file.get_var() as String
 	return code
 
 
 func _save_auth_code(code: String):
-	var file := File.new()
-	var err := file.open(AUTH_CODE_SAVE_FILE, File.WRITE)
-	if err:
+	var file := FileAccess.open(AUTH_CODE_SAVE_FILE, FileAccess.WRITE)
+	if not file:
 		return
 	file.store_var(code)
 
 
 func _on_LineEdit_focus_entered():
-	line_edit.add_stylebox_override("normal", null)
+	line_edit.add_theme_stylebox_override("normal", null)
 
 
 func _on_LineEdit_focus_exited():
-	if line_edit.text.empty():
-		line_edit.add_stylebox_override("normal", preload("line_edit_stylebox.tres"))
+	if line_edit.text.is_empty():
+		line_edit.add_theme_stylebox_override("normal", preload("line_edit_stylebox.tres"))
 
 
 func _on_LineEdit_text_changed(new_text: String):
-	submit.disabled = new_text.strip_edges().empty()
+	submit.disabled = new_text.strip_edges().is_empty()
 
 
 func _on_LineEdit_text_entered(new_text: String):

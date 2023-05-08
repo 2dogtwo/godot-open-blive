@@ -1,4 +1,4 @@
-extends WebSocketClient
+extends WebSocketMultiplayerPeer
 
 signal auth_success
 signal heartbeat_failed
@@ -26,7 +26,7 @@ class Proto:
 	}
 	
 	var operation: int # Operation
-	var body: PoolByteArray
+	var body: PackedByteArray
 	
 	static func make_heartbeat() -> Proto:
 		var proto := Proto.new()
@@ -36,7 +36,7 @@ class Proto:
 	static func make_auth(auth_body: String) -> Proto:
 		var proto := Proto.new()
 		proto.operation = Operation.OP_AUTH
-		proto.body = auth_body.to_utf8()
+		proto.body = auth_body.to_utf8_buffer()
 		return proto
 	
 	static func _unpack(buffer: StreamPeerBuffer, protos: Array) -> int:
@@ -66,7 +66,7 @@ class Proto:
 			Version.COMPRESSED:
 				var uncompressed := StreamPeerBuffer.new()
 				uncompressed.big_endian = true
-				uncompressed.data_array = raw[1].decompress_dynamic(-1, File.COMPRESSION_GZIP)
+				uncompressed.data_array = raw[1].decompress_dynamic(-1, FileAccess.COMPRESSION_GZIP)
 				var err := _unpack(uncompressed, protos)
 				if err:
 					return err
@@ -77,7 +77,7 @@ class Proto:
 		
 		return OK
 	
-	static func unpack(data: PoolByteArray) -> Array: # [Proto]
+	static func unpack(data: PackedByteArray) -> Array: # [Proto]
 		var buffer := StreamPeerBuffer.new()
 		buffer.big_endian = true
 		buffer.data_array = data
@@ -111,20 +111,20 @@ var _last_heartbeat_received_at := -1
 
 
 func _init():
-	connect("connection_established", self, "_on_ws_connection_established")
-	connect("data_received", self, "_on_ws_data_received")
+	connect("connection_established", Callable(self, "_on_ws_connection_established"))
+	connect("data_received", Callable(self, "_on_ws_data_received"))
 
 
 func connect_with_auth(url: String, auth_body: String):
 	_auth_body = auth_body
 	
-	if url.empty() or _auth_body.empty():
+	if url.is_empty() or _auth_body.is_empty():
 		emit_signal("connection_error")
 		return
 	
 	_authorized = false
 	
-	var err := connect_to_url(url)
+	var err := create_client(url)
 	if err:
 		printerr("failed to connect to URL: %s" % url)
 		# 不必手动发出 connection_error
@@ -140,13 +140,13 @@ func poll_and_heartbeat():
 	if not _authorized:
 		return
 	
-	var timestamp := OS.get_unix_time()
+	var timestamp := Time.get_unix_time_from_system()
 	if _last_heartbeat_sent_at + HEARTBEAT_INTERVAL < timestamp:
 		Proto.make_heartbeat().pack(peer)
 		_last_heartbeat_sent_at = timestamp
 	
 	if timestamp - _last_heartbeat_received_at > HEARTBEAT_INTERVAL * 3:
-		disconnect_from_host()
+		peer.disconnect_from_host()
 		emit_signal("heartbeat_failed")
 
 
@@ -164,17 +164,19 @@ func _on_ws_data_received() -> void:
 #				buffer.big_endian = true
 #				buffer.data_array = proto.body
 #				print("Popularity: ", buffer.get_32())
-				_last_heartbeat_received_at = OS.get_unix_time()
+				_last_heartbeat_received_at = Time.get_unix_time_from_system()
 				
 			Proto.Operation.OP_AUTH_REPLY:
 				# 如果提供错误的授权数据也并不会返回失败，但无法正常获取数据
 				_authorized = true
-				_last_heartbeat_sent_at = OS.get_unix_time()
-				_last_heartbeat_received_at = OS.get_unix_time()
+				_last_heartbeat_sent_at = Time.get_unix_time_from_system()
+				_last_heartbeat_received_at = Time.get_unix_time_from_system()
 				emit_signal("auth_success")
 			
 			Proto.Operation.OP_SEND_SMS_REPLY:
-				var body: Dictionary = parse_json(proto.body.get_string_from_utf8())
+				var test_json_conv = JSON.new()
+				test_json_conv.parse(proto.body.get_string_from_utf8())
+				var body: Dictionary = test_json_conv.get_data()
 				var command: String = body.get("cmd")
 				match command:
 					"LIVE_OPEN_PLATFORM_DM":

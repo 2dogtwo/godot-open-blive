@@ -19,14 +19,14 @@ const ApiClient := preload("api_client.gd")
 const DanmakuClient := preload("danmaku_client.gd")
 const AuthCodeRequester := preload("auth_code/AuthCodeRequester.tscn")
 
-export var access_key_id: String
-export var access_key_secret: String
-export var app_id := 0
+@export var access_key_id: String
+@export var access_key_secret: String
+@export var app_id := 0
 
 var api_client: ApiClient
 var danmaku_client: DanmakuClient
 
-var _last_wss_links := PoolStringArray()
+var _last_wss_links := PackedStringArray()
 var _last_auth_body: String
 var _last_code: String
 
@@ -37,17 +37,17 @@ var _game_anchor_info: Dictionary
 
 func _ready():
 	danmaku_client = DanmakuClient.new()
-	danmaku_client.connect("auth_success", self, "_on_danmaku_server_connected")
-	danmaku_client.connect("connection_error", self, "emit_signal", ["danmaku_server_connection_failed"])
-	danmaku_client.connect("connection_closed", self, "_on_danmaku_server_connection_closed")
-	danmaku_client.connect("heartbeat_failed", self, "_on_danmaku_heartbeat_failed")
+	danmaku_client.connect("auth_success", Callable(self, "_on_danmaku_server_connected"))
+	danmaku_client.connect("connection_error", Callable(self, "emit_signal").bind("danmaku_server_connection_failed"))
+	danmaku_client.connect("connection_closed", Callable(self, "_on_danmaku_server_connection_closed"))
+	danmaku_client.connect("heartbeat_failed", Callable(self, "_on_danmaku_heartbeat_failed"))
 	
 	for signal_name in ["danmaku_received", "gift_received", "superchat_added", "superchat_removed", "guard_hired"]:
-		danmaku_client.connect(signal_name, self, "_pass_danmaku_event", [signal_name])
+		danmaku_client.connect(signal_name, Callable(self, "_pass_danmaku_event").bind(signal_name))
 	
 	_game_heartbeat = Timer.new()
 	_game_heartbeat.wait_time = 20
-	_game_heartbeat.connect("timeout", self, "_on_game_heartbeat")
+	_game_heartbeat.connect("timeout", Callable(self, "_on_game_heartbeat"))
 	add_child(_game_heartbeat)
 
 
@@ -58,12 +58,12 @@ func _notification(what):
 
 
 func prompt_for_auth_code() -> String:
-	yield(get_tree(), "idle_frame")
+	await get_tree().idle_frame
 	
-	var prompt = AuthCodeRequester.instance()
+	var prompt = AuthCodeRequester.instantiate()
 	add_child(prompt)
 	prompt.show_dialog()
-	var code: String = yield(prompt, "submitted")
+	var code: String = await prompt.submitted
 	prompt.queue_free()
 	return code
 
@@ -73,10 +73,10 @@ func get_anchor_info() -> Dictionary:
 
 
 func start_danmaku(url := "", auth_body := ""):
-	yield(get_tree(), "idle_frame")
+	await get_tree().idle_frame
 	
-	if url.empty() or auth_body.empty():
-		if _last_wss_links.empty() or _last_auth_body.empty():
+	if url.is_empty() or auth_body.is_empty():
+		if _last_wss_links.is_empty() or _last_auth_body.is_empty():
 			printerr("请使用 start_game() 启动游戏，启动游戏后会自动开启弹幕。start_danmaku() 仅用于弹幕服务器断开后的重连。")
 			emit_signal("danmaku_server_connection_failed")
 			return
@@ -88,14 +88,14 @@ func start_danmaku(url := "", auth_body := ""):
 
 
 func stop_danmaku():
-	yield(get_tree(), "idle_frame")
+	await get_tree().idle_frame
 	danmaku_client.disconnect_from_host()
 
 
 func start_game(code := "", with_danmaku := true):
-	yield(get_tree(), "idle_frame")
+	await get_tree().idle_frame
 	
-	if access_key_id.empty() or access_key_secret.empty():
+	if access_key_id.is_empty() or access_key_secret.is_empty():
 		printerr("未配置 access_key_id 及 access_key_secret，无法开启互动玩法")
 		emit_signal("game_start_failed", -1)
 		return
@@ -107,13 +107,13 @@ func start_game(code := "", with_danmaku := true):
 	if not api_client:
 		api_client = ApiClient.new(access_key_id, access_key_secret)
 	
-	if not code:
+	if code != "":
 		code = _last_code
-	if not code:
+	if code != "":
 		code = get_auth_code_from_cmdline()
-	if not code:
-		code = yield(prompt_for_auth_code(), "completed")
-	if not code:
+	if code != "":
+		code = await prompt_for_auth_code()
+	if code != "":
 		emit_signal("game_start_failed", -1)
 		return
 	
@@ -122,10 +122,8 @@ func start_game(code := "", with_danmaku := true):
 	_game_anchor_info = {}
 	
 	while true:
-		var result: ApiClient.ApiCallResult = yield(
-			api_client.request("/v2/app/start", {code=code, app_id=app_id}),
-			"completed"
-		)
+		var result: ApiClient.ApiCallResult = await api_client.request("/v2/app/start", {code=code, app_id=app_id})
+		
 		if result.is_ok():
 			_game_id = result.data.game_info.game_id
 			_game_anchor_info = result.data.anchor_info
@@ -142,7 +140,7 @@ func start_game(code := "", with_danmaku := true):
 		
 		match result.code:
 			7001: # 请求冷静期
-				yield(get_tree().create_timer(5), "timeout")
+				await get_tree().create_timer(5).timeout
 			
 			_:
 				printerr("start game error: (%d) %s" % [result.code, result.message])
@@ -154,17 +152,14 @@ func start_game(code := "", with_danmaku := true):
 
 
 func stop_game(keep_danmaku := false):
-	yield(get_tree(), "idle_frame")
+	await get_tree().idle_frame
 	
-	if not _game_id:
+	if _game_id != "":
 		return
 	
 	_game_heartbeat.stop()
 	
-	var result: ApiClient.ApiCallResult = yield(
-		api_client.request("/v2/app/end", {game_id=_game_id, app_id=app_id}),
-		"completed"
-	)
+	var result: ApiClient.ApiCallResult = await api_client.request("/v2/app/end", {game_id=_game_id, app_id=app_id})
 	if not result.is_ok():
 		printerr("stop game error: (%d) %s" % [result.code, result.message])
 	
@@ -210,9 +205,6 @@ func _on_danmaku_heartbeat_failed():
 
 func _on_game_heartbeat():
 	# TODO: Heartbeat interval after call complete.
-	var result : ApiClient.ApiCallResult = yield(
-		api_client.request("/v2/app/heartbeat", {game_id=_game_id}),
-		"completed"
-	)
+	var result : ApiClient.ApiCallResult = await api_client.request("/v2/app/heartbeat", {game_id=_game_id})
 	if not result.is_ok() and result.type == ApiClient.ApiCallResult.Type.API_ERROR and result.code == 7003:
 		_on_game_stopped()
