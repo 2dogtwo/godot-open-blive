@@ -6,11 +6,11 @@
 /.gitignore             export-ignore
 /.github                export-ignore
 /LICENSE                export-ignore
-/README.md              export-ignore
-/CHANGELOG.md           export-ignore
-/project.godot          export-ignore
-/icon.png               export-ignore
-/icon.png.import        export-ignore
+#/README.md              export-ignore
+#/CHANGELOG.md           export-ignore
+#/project.godot          export-ignore
+#/icon.png               export-ignore
+#/icon.png.import        export-ignore
 /icon.svg               export-ignore
 /icon.svg.import        export-ignore
-/demo                   export-ignore
+#/demo                   export-ignore
